@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>指板スケールビューア</title>
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e8eeea;--ink:#1c2b2a;--sub:#587070;--card:#f7faf8;--line:#c3d0ca;--board:#3a2820;--fret:#a9a49a;--str:#d8d4c8;--dot:#6a5244;--scale:#1f8a8a;--root:#e8a21c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#16201f;--ink:#e3ece8;--sub:#92aaa4;--card:#1f2c2a;--line:#344642;--board:#2b1d17;--scale:#35b3b0}}
+:root[data-theme="dark"]{--bg:#16201f;--ink:#e3ece8;--sub:#92aaa4;--card:#1f2c2a;--line:#344642;--board:#2b1d17;--scale:#35b3b0}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Zen Maru Gothic","Hiragino Maru Gothic ProN","Yu Gothic",sans-serif;line-height:1.6}
+main{max-width:1000px;margin:0 auto;padding:20px 14px 40px}
+h1{font-size:1.5rem;margin:0 0 4px}
+p.lead{margin:0 0 18px;color:var(--sub);font-size:.95rem}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+label{display:block;font-size:.8rem;color:var(--sub);margin-bottom:3px}
+select{width:100%;font:inherit;font-size:1rem;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+select:focus-visible,button:focus-visible{outline:3px solid var(--root);outline-offset:1px}
+.seg{display:flex;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{flex:1;font:inherit;padding:9px 6px;border:0;background:var(--bg);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--scale);color:#fff;font-weight:700}
+.notes{margin:18px 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{min-width:44px;text-align:center;padding:5px 10px;border-radius:999px;background:var(--scale);color:#fff;font-weight:700}
+.chip.root{background:var(--root);color:#2a1d05}
+.chip small{display:block;font-size:.65rem;font-weight:500;opacity:.85;line-height:1.1}
+.scroll{overflow-x:auto;border-radius:12px;background:var(--board);-webkit-overflow-scrolling:touch}
+svg{display:block;-webkit-tap-highlight-color:transparent}
+.cell{cursor:pointer}
+.cell .hit{fill:transparent}
+.cell:hover .hit{fill:rgba(255,255,255,.07)}
+.cell .dot{transition:transform .12s;transform-box:fill-box;transform-origin:center}
+.cell.on .dot{transform:scale(1.3);filter:brightness(1.25)}
+.legend{margin-top:10px;font-size:.85rem;color:var(--sub)}
+</style>
+</head>
+<body>
+<main>
+<h1>指板スケールビューア</h1>
+<p class="lead">キーとスケールを選ぶと、指板上で使う音がひと目でわかります。指板を押すと、その音が鳴ります。</p>
+
+<section class="panel" aria-label="設定">
+  <div><label for="root">キー（ルート音）</label><select id="root"></select></div>
+  <div><label for="scale">スケール</label><select id="scale"></select></div>
+  <div><label for="tuning">チューニング</label><select id="tuning"></select></div>
+  <div><label>ドット内の表示</label><div class="seg" id="mode"><button data-v="name" aria-pressed="true">音名</button><button data-v="deg" aria-pressed="false">度数</button></div></div>
+  <div><label>♯ / ♭</label><div class="seg" id="acc"><button data-v="s" aria-pressed="true">♯</button><button data-v="f" aria-pressed="false">♭</button></div></div>
+</section>
+
+<div class="notes" id="notes" aria-live="polite"></div>
+<div class="scroll" id="board" role="img" aria-label="指板図"></div>
+<p class="legend">オレンジ＝ルート音、青緑＝スケール内の音。左端の丸は開放弦です。スケール外のフレットを押しても音が鳴ります。</p>
+</main>
+
+<script>
+const SHARP=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+const FLAT=['C','D♭','D','E♭','E','F','G♭','G','A♭','A','B♭','B'];
+const DEG=['1','♭2','2','♭3','3','4','♭5','5','♭6','6','♭7','7'];
+const SCALES=[
+ ['メジャー（Ionian）',[0,2,4,5,7,9,11]],
+ ['ナチュラルマイナー（Aeolian）',[0,2,3,5,7,8,10]],
+ ['メジャーペンタトニック',[0,2,4,7,9]],
+ ['マイナーペンタトニック',[0,3,5,7,10]],
+ ['ブルーススケール',[0,3,5,6,7,10]],
+ ['ドリアン',[0,2,3,5,7,9,10]],
+ ['フリジアン',[0,1,3,5,7,8,10]],
+ ['リディアン',[0,2,4,6,7,9,11]],
+ ['ミクソリディアン',[0,2,4,5,7,9,10]],
+ ['ロクリアン',[0,1,3,5,6,8,10]],
+ ['ハーモニックマイナー',[0,2,3,5,7,8,11]],
+ ['メロディックマイナー',[0,2,3,5,7,9,11]]
+];
+// 各弦の開放弦の音を MIDI ノート番号で持っています（細い弦 → 太い弦の順）
+// 例: 64 = ミ（1弦の開放）, 40 = 低いミ（6弦の開放）
+const TUNINGS=[
+ ['ギター 標準（EADGBE）',[64,59,55,50,45,40]],
+ ['ギター ドロップD',[64,59,55,50,45,38]],
+ ['ギター 半音下げ',[63,58,54,49,44,39]],
+ ['7弦ギター',[64,59,55,50,45,40,35]],
+ ['ベース 4弦',[43,38,33,28]]
+];
+const FRETS=15, OPEN_W=54, FW=62, SH=36, TOP=14;
+const st={root:0,scale:0,tuning:0,mode:'name',acc:'s'};
+const $=id=>document.getElementById(id);
+
+function fillSelect(el,items,fmt){el.innerHTML=items.map((x,i)=>`<option value="${i}">${fmt(x,i)}</option>`).join('')}
+fillSelect($('root'),SHARP,(x,i)=>SHARP[i]===FLAT[i]?SHARP[i]:`${SHARP[i]} / ${FLAT[i]}`);
+fillSelect($('scale'),SCALES,x=>x[0]);
+fillSelect($('tuning'),TUNINGS,x=>x[0]);
+
+/* ---------- 音を鳴らす部分 ---------- */
+let ctx=null;
+const cache={};
+// 弦をはじいた音（Karplus-Strong 法）を作る。同じ音は使い回す。
+function pluck(midi){
+  if(cache[midi])return cache[midi];
+  const sr=ctx.sampleRate, freq=440*Math.pow(2,(midi-69)/12);
+  const len=Math.floor(sr*2.2), n=Math.max(2,Math.round(sr/freq));
+  const buf=ctx.createBuffer(1,len,sr), d=buf.getChannelData(0);
+  const line=new Float32Array(n);
+  for(let i=0;i<n;i++)line[i]=Math.random()*2-1;
+  let p=0;
+  for(let i=0;i<len;i++){
+    const next=(p+1)%n;
+    d[i]=line[p];
+    line[p]=(line[p]+line[next])*0.5*0.997;
+    p=next;
+  }
+  for(let i=0;i<400;i++)d[i]*=i/400;           // 立ち上がりのプチ音を防ぐ
+  for(let i=len-3000;i<len;i++)d[i]*=(len-i)/3000; // 終わりをなめらかに
+  return cache[midi]=buf;
+}
+function play(midi){
+  if(!ctx)ctx=new (window.AudioContext||window.webkitAudioContext)(); // 最初のタップで作る（スマホ対策）
+  if(ctx.state==='suspended')ctx.resume();
+  const src=ctx.createBufferSource(), gain=ctx.createGain();
+  src.buffer=pluck(midi);
+  gain.gain.value=0.7;
+  src.connect(gain).connect(ctx.destination);
+  src.start();
+}
+
+/* ---------- 指板を描く部分 ---------- */
+function render(){
+  const names=st.acc==='s'?SHARP:FLAT;
+  const iv=SCALES[st.scale][1];
+  const inScale=new Set(iv.map(d=>(d+st.root)%12));
+  const label=pc=>st.mode==='name'?names[pc]:DEG[(pc-st.root+12)%12];
+
+  $('notes').innerHTML=iv.map((d,i)=>{const pc=(d+st.root)%12;
+    return `<span class="chip${i===0?' root':''}">${names[pc]}<small>${DEG[d]}</small></span>`}).join('');
+
+  const strs=TUNINGS[st.tuning][1];
+  const W=OPEN_W+FRETS*FW+10, H=TOP*2+(strs.length-1)*SH+30;
+  let s=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg">`;
+  const y=i=>TOP+i*SH, bottom=y(strs.length-1);
+  [3,5,7,9,15].forEach(f=>s+=`<circle cx="${OPEN_W+(f-.5)*FW}" cy="${(TOP+bottom)/2}" r="6" fill="var(--dot)"/>`);
+  [-1,1].forEach(k=>s+=`<circle cx="${OPEN_W+11.5*FW}" cy="${(TOP+bottom)/2+k*SH*Math.min(1,(strs.length-1)/4)}" r="6" fill="var(--dot)"/>`);
+  for(let f=0;f<=FRETS;f++){const x=OPEN_W+f*FW;
+    s+=`<line x1="${x}" y1="${TOP-6}" x2="${x}" y2="${bottom+6}" stroke="${f===0?'#efeadf':'var(--fret)'}" stroke-width="${f===0?5:2}"/>`;
+    if(f>0)s+=`<text x="${x-FW/2}" y="${H-6}" text-anchor="middle" font-size="12" fill="var(--str)" opacity=".7">${f}</text>`}
+  strs.forEach((_,i)=>s+=`<line x1="${OPEN_W-30}" y1="${y(i)}" x2="${W-6}" y2="${y(i)}" stroke="var(--str)" stroke-width="${1+i*.45}" opacity=".85"/>`);
+
+  // すべてのフレット位置を押せるようにして、スケールの音だけ丸を表示する
+  strs.forEach((open,i)=>{for(let f=0;f<=FRETS;f++){
+    const midi=open+f, pc=midi%12;
+    const cx=f===0?OPEN_W-26:OPEN_W+(f-.5)*FW;
+    const hx=f===0?OPEN_W-52:OPEN_W+(f-1)*FW, hw=f===0?52:FW;
+    s+=`<g class="cell" data-m="${midi}"><rect class="hit" x="${hx}" y="${y(i)-SH/2}" width="${hw}" height="${SH}"/>`;
+    if(inScale.has(pc)){
+      const isRoot=pc===st.root;
+      s+=`<circle class="dot" cx="${cx}" cy="${y(i)}" r="13" fill="${isRoot?'var(--root)':'var(--scale)'}"/>`+
+         `<text x="${cx}" y="${y(i)+4.5}" text-anchor="middle" font-size="13" font-weight="700" fill="${isRoot?'#2a1d05':'#fff'}" pointer-events="none">${label(pc)}</text>`;
+    }
+    s+='</g>';
+  }});
+  $('board').innerHTML=s+'</svg>';
+}
+
+// 指板をタップしたときの処理
+$('board').addEventListener('pointerdown',e=>{
+  const g=e.target.closest('.cell');
+  if(!g)return;
+  play(+g.dataset.m);
+  g.classList.add('on');
+  setTimeout(()=>g.classList.remove('on'),180);
+});
+
+['root','scale','tuning'].forEach(k=>$(k).addEventListener('change',e=>{st[k]=+e.target.value;render()}));
+[['mode','mode'],['acc','acc']].forEach(([id,k])=>$(id).addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;st[k]=b.dataset.v;
+  $(id).querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));render()}));
+render();
+</script>
+</body>
+</html>
